@@ -1,11 +1,12 @@
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onCheck, onClick, onInput, onSubmit)
+import Html.Events exposing (onBlur, onCheck, onClick, onInput, onSubmit)
 
 import Http
 import Json.Encode as Encode
 import Json.Decode as Json
 
+import Maybe.Extra exposing(toList)
 import Validation exposing (..)
 
 type alias Model =
@@ -33,11 +34,14 @@ initialModel =
 
 type Msg
   = InputEmail String
+  | BlurEmail 
   | InputPassword String
+  | BlurPassword
   | InputConfirmPassword String
+  | BlurConfirmPassword
   | Submit
   | CheckAcceptPolicy Bool
-  | SubmitResponse (Result Http.Error () )
+  | SubmitResponse (Result Http.Error ResponseBody )
 
 main : Program Never Model Msg
 main =
@@ -55,6 +59,10 @@ update msg model =
             ({model | email = model.email 
                     |> validate (OnChange e) emailValidation
                     }, Cmd.none)
+        BlurEmail ->
+            ({model | email = model.email 
+                    |> validate OnBlur emailValidation
+                    }, Cmd.none)
         InputPassword p ->
             let 
                 password = model.password 
@@ -67,21 +75,45 @@ update msg model =
                                 OnRelatedChange
                                 (confirmPasswordValidation password)
             }, Cmd.none)
+        BlurPassword ->
+            ({model | password = model.password 
+                    |> validate OnBlur passwordValidation
+                    }, Cmd.none) 
         InputConfirmPassword p ->
             ({model | confirmPassword = model.confirmPassword
                     |> validate
                      (OnChange p) 
                      (confirmPasswordValidation model.password)
             }, Cmd.none)
+        BlurConfirmPassword ->
+            ({model | confirmPassword = model.confirmPassword 
+                    |> validate OnBlur (confirmPasswordValidation model.password)
+                    }, Cmd.none) 
         CheckAcceptPolicy a ->
             ({model | acceptPolicy = field a}, Cmd.none)
         Submit ->
             model |> validateModel |> submitIfValid
-        SubmitResponse (Ok ()) ->
+        SubmitResponse (Ok (Ok ())) ->
             ({initialModel | status = Succeded }, Cmd.none)
+        SubmitResponse (Ok (Err errs)) ->
+            ({model | status = NotSubmitted }
+              |> applyServerValidationErrors errs , Cmd.none)
         SubmitResponse (Err _) ->
             ({model | status = Failed}, Cmd.none)
         
+
+applyServerValidationErrors : List ServerValidationError -> Model -> Model
+applyServerValidationErrors errs model =
+  let
+    applyError err m =
+      case err of
+        EmailAlreadyRegistered ->
+        {m | email = model.email 
+              |> setError "This email is already registered"}
+  
+  in
+    errs |> List.foldl applyError model
+
 emailValidation = 
   isNotEmpty "An email is required"
   >=> isEmail "Please ensure this is a valid email"
@@ -142,19 +174,48 @@ submitIfValid model =
 submit : String -> String -> String -> Bool ->  Cmd Msg
 submit email password _ _ =
     let
-        url = "http://localhost:3000/api/contact"
+        url = "http://localhost:3000/api/register"
 
         json = Encode.object
             [ ("email", Encode.string email)
             , ("password", Encode.string password)
             ]
 
-        decoder = Json.string |> Json.map (always () )
+  
 
 
-        request = Http.post url (Http.jsonBody json) decoder
+        request = Http.post url (Http.jsonBody json) decodeResponseBody
 
     in request |> Http.send SubmitResponse
+
+
+
+decodeResponseBody : Json.Decoder ResponseBody
+decodeResponseBody = 
+  Json.map2
+    (\success errs ->
+      if success then Ok ()
+      else Err (errs |> Maybe.withDefault [])
+    )
+    (Json.field "success" Json.bool)
+    (Json.list decodeServerValidationError
+      |> Json.field "errors"
+      |> Json.maybe)
+
+decodeServerValidationError : Json.Decoder ServerValidationError
+decodeServerValidationError =
+  Json.string |> Json.andThen 
+    (\str -> case str of
+      "email_already_registered" ->
+        Json.succeed EmailAlreadyRegistered
+      s -> 
+          Json.fail <| "Unexpected value: " ++ s
+    )
+
+type alias ResponseBody = Result (List ServerValidationError) ()
+
+type ServerValidationError
+  = EmailAlreadyRegistered
 
 view : Model -> Html Msg
 view model =
@@ -170,7 +231,32 @@ view model =
 
 header  model = div []
   [ h1 [] [ text "Register" ] 
-  , renderStatus model.status]
+  , renderStatus model.status
+  , listErrors model]
+
+listErrors model =
+  let
+      errors = 
+        [extractError model.email
+        ,extractError model.password
+        ,extractError model.confirmPassword
+        ,extractError model.acceptPolicy
+        ]
+        |> List.concatMap  toList
+
+      createListItem s =
+        li [] [text s]
+
+  in
+    case errors of
+      [] ->
+        text ""
+      _ ->
+        div []
+          [ text "Please fix the following errors:"
+          , ul [] (errors |> List.map createListItem)
+          ]
+
 
 renderStatus status = 
     case status of
@@ -199,6 +285,7 @@ body model = div []
       [ placeholder "your email *"
       , type_ "email"
       , onInput InputEmail
+      , onBlur BlurEmail
       , value (model.email |> rawValue)
       , required True
       ] []
@@ -209,6 +296,7 @@ body model = div []
       [ placeholder "your password *"
       , type_ "password"
       , onInput InputPassword
+      , onBlur BlurPassword
       , value (model.password |> rawValue )
       , required True
       ] []
@@ -219,6 +307,7 @@ body model = div []
       [ placeholder "confirm password *"
       , type_ "password"
       , onInput InputConfirmPassword
+      , onBlur BlurConfirmPassword
       , value (model.confirmPassword |> rawValue )
       , required True
       ] []
