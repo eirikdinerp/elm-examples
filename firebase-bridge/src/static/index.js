@@ -6,10 +6,19 @@ import Wishlist from '../js/wishlist';
 
 // inject bundled Elm app into div#main
 import Elm from '../elm/Main';
-Elm.Main.embed(document.getElementById('main'));
+const program = Elm.Main.embed(document.getElementById('main'));
+console.log(program);
 
-Wishlist.list('test').then(function(wishlistsSnapshot) {
-  wishlistsSnapshot.forEach(doc => {
-    console.log(`${doc.id} => ${JSON.stringify(doc.data())}`);
+program.ports.requestWishlists.subscribe(function(userName) {
+  console.log('JS: Request wishlists');
+  Wishlist.list('test').then(function(wishlistsSnapshot) {
+    const wishlists = [];
+
+    wishlistsSnapshot.forEach(doc => {
+      wishlists.push(JSON.stringify(doc.data()));
+      console.log(`${doc.id} => ${JSON.stringify(doc.data())}`);
+    });
+
+    program.ports.requestedWishlists.send(wishlists);
   });
 });

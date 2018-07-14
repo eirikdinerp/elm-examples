@@ -5,6 +5,7 @@ import Html.Events exposing ( onClick )
 import Json.Decode as Decode
 import Json.Encode as Encode
 
+import Wishlist exposing (..)
 import Wishlist.Decoder
 import Wishlist.Encoder
 
@@ -16,36 +17,59 @@ import Firebase
 -- APP
 main : Program Never Model Msg
 main =
-  Html.beginnerProgram { model = model, view = view, update = update }
+  Html.program { init= init, view = view, update = update, subscriptions = subscriptions }
 
+subscriptions : Model -> Sub Msg
+subscriptions model =
+  Sub.batch
+    [ 
+      -- Window.resizes Resizes
+     firebaseSubscriptions model
+    -- , fromLocalStorage RestoreArticles
+    ]
 
--- firebaseSubscriptions : Model -> Sub Msg
--- firebaseSubscriptions model =
---   Sub.batch
---     Sub.batch
---     [ 
---       Firebase.requestedWishlists GetWishlists
---     ]
+firebaseSubscriptions : Model -> Sub Msg
+firebaseSubscriptions model =
+    Sub.batch
+    [ 
+      Sub.none
+      --Firebase.requestedWishlists GetWishlists
+    ]
 
+init : ( Model, Cmd Msg )
+init =
+    ( emptyModel, Cmd.none )
 
 -- MODEL
-type alias Model = Int
+type alias Model = { counter : Int, wishlists : List Wishlist }
 
-model : Model
-model = 0
+emptyModel : Model
+emptyModel = {
+  counter = 0,
+  wishlists = []
+ }
 
 
 -- UPDATE
-type Msg = NoOp | Increment
+type Msg = NoOp | Increment |  RequestWishlists --| GetWishlists Decode.Value
 
-update : Msg -> Model -> Model
+update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
   case msg of
-    NoOp -> model
-    Increment -> model + 1
+    -- GetWishlists -> model ! [Cmd.none]
+    NoOp -> (model, Cmd.none)
+    Increment -> ( { model | counter = model.counter +1 }, Cmd.none)
+    RequestWishlists ->
+      model ! [Firebase.requestWishlists ""]
     -- GetWishlists wishlists ->
       -- wishlists 
       -- |> Decode.decodeValue Wishlist.Decoder.decodeWishlists
+      -- |> Result.withDefault []
+      -- |> ( { model | wishlists = wishlists},  Cmd.none)
+      -- |> ( { model | wishlist = Just wishlist }
+      -- , Cmd.none
+      -- )
+
 
 
 -- VIEW
@@ -58,9 +82,9 @@ view model =
       div [ class "col-xs-12" ][
         div [ class "jumbotron" ][
           img [ src "static/img/elm.jpg", style styles.img ] []                             -- inline CSS (via var)
-          , hello model                                                                     -- ext 'hello' component (takes 'model' as arg)
+          , hello model.counter                                                                     -- ext 'hello' component (takes 'model' as arg)
           , p [] [ text ( "Elm Webpack Starter" ) ]
-          , button [ class "btn btn-primary btn-lg", onClick Increment ] [                  -- click handler
+          , button [ class "btn btn-primary btn-lg", onClick RequestWishlists ] [                  -- click handler
             span[ class "glyphicon glyphicon-star" ][]                                      -- glyphicon
             , span[][ text "FTW!" ]
           ]
